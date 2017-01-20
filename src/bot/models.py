@@ -3,8 +3,8 @@ import random
 from datetime import datetime, timezone, timedelta
 
 from peewee import *
-from src.bot.utils import load_config
-
+from src.bot.utils import load_config, encode_callback_data, \
+    decode_callback_data
 
 config = load_config()
 DATABASE_NAME = config['database_name']
@@ -161,6 +161,14 @@ class Task(BaseModel):
         else:
             return [task.to_public_dict() for task in tasks]
 
+    @classmethod
+    def from_callback(cls, callback_data):
+        task_id = decode_callback_data(callback_data)
+        try:
+            return Task.get(Task.id == int(task_id))
+        except DoesNotExist:
+            return None
+
 
 class User(BaseModel):
     chat_id = IntegerField(index=True, default=0)
@@ -265,9 +273,27 @@ class Activity(BaseModel):
         return []
 
 
+class TelegramCallback(BaseModel):
+    """ Since Telegram restricts callback's max length
+        this model temporarily stores in DB user messages """
+
+    data = CharField(default='')
+
+    @classmethod
+    def pop_data(cls, callback_data):
+        try:
+            callback_id = decode_callback_data(callback_data)
+            rec = TelegramCallback.get(TelegramCallback.id == callback_id)
+            response = rec.data
+            rec.delete_instance()
+            return response
+        except DoesNotExist:
+            return None
+
+
 def create_tables():
     with db.transaction():
-        for model in [Task, User, Activity]:
+        for model in [Task, User, Activity, TelegramCallback]:
             if not model.table_exists():
                 db.create_table(model)
 

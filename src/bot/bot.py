@@ -13,7 +13,7 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, \
     MessageHandler, Filters
 
 from src.bot.models import Task, TaskStatus, User, Activity, \
-    get_current_timestamp
+    get_current_timestamp, TelegramCallback
 from src.bot.utils import encode_callback_data, decode_callback_data, \
     render_template, format_task_content, decode_answer_option, \
     timestamp_to_date, load_config
@@ -52,7 +52,8 @@ class MessageTemplate(object):
 
 def handle_text(bot, update):
     user_message = format_task_content(update.message.text)
-    encoded_task = encode_callback_data(AnswerOption.ADD_TASK, user_message)
+    callback = TelegramCallback.create(data=user_message)
+    encoded_task = encode_callback_data(AnswerOption.ADD_TASK, callback.id)
 
     keyboard = [[
         Button('Yes', callback_data=encoded_task),
@@ -83,7 +84,7 @@ def handle_task_creation_dialog(bot, update):
 
     # create task
     if answer == AnswerOption.ADD_TASK:
-        content = decode_callback_data(callback_data)
+        content = TelegramCallback.pop_data(callback_data)
         chat_id = update.callback_query.message.chat_id
 
         task = Task.create(
@@ -109,6 +110,7 @@ def handle_task_creation_dialog(bot, update):
     # cancel
     elif answer == AnswerOption.CANCEL:
         reply_text = render_template(MessageTemplate.REGULAR_REPLY)
+        TelegramCallback.pop_data(decode_callback_data(callback_data))
 
     edit_message(bot, update, reply_text)
 
@@ -119,9 +121,7 @@ def handle_quiz_dialog(bot, update):
 
     message = update.callback_query.message.text
     chat_id = int(update.callback_query.message.chat_id)
-    content = decode_callback_data(callback_data)
-
-    task = Task.find_task(chat_id, content)
+    task = Task.from_callback(callback_data)
 
     # task not found in DB
     if not task:
@@ -137,7 +137,7 @@ def handle_quiz_dialog(bot, update):
                 MessageTemplate.REMEMBER, task.content)
         else:
             reply_text = render_template(
-                MessageTemplate.TERM_HAS_LEARNED, content, bold=True)
+                MessageTemplate.TERM_HAS_LEARNED, task.content, bold=True)
 
     # user forgot a term
     elif answer == AnswerOption.FORGOT:
@@ -177,9 +177,9 @@ def help(bot, update):
 
 
 def remind_task_to_user(bot, task):
-    encoded_yes = encode_callback_data(AnswerOption.REMEMBER, task.content)
-    encoded_no = encode_callback_data(AnswerOption.FORGOT, task.content)
-    encoded_rem = encode_callback_data(AnswerOption.REMOVE, task.content)
+    encoded_yes = encode_callback_data(AnswerOption.REMEMBER, task.id)
+    encoded_no = encode_callback_data(AnswerOption.FORGOT, task.id)
+    encoded_rem = encode_callback_data(AnswerOption.REMOVE, task.id)
 
     keyboard = [
         [Button("Yes", callback_data=encoded_yes),

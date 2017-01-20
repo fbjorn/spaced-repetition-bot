@@ -7,7 +7,7 @@ from peewee import *
 
 import src.bot.models
 import src.bot.bot
-from src.bot.models import Task, TaskStatus, User, Activity
+from src.bot.models import Task, TaskStatus, User, Activity, TelegramCallback
 from src.bot.utils import encode_callback_data, decode_callback_data, \
     render_template, format_task_content, decode_answer_option, \
     timestamp_to_date, load_config, _convert_handwrite_to_seconds
@@ -293,7 +293,14 @@ class BotTestCase(TestCase):
 
     def answer(self, answer_option, text):
         ''' Emulate user click on a callback button'''
-        data = encode_callback_data(answer_option, text)
+
+        if answer_option in (AnswerOption.ADD_TASK, AnswerOption.CANCEL):
+            callback = TelegramCallback.create(data=text)
+            data = encode_callback_data(answer_option, callback.id)
+        else:
+            task = Task.find_task(self.chat_id, text)
+            data = encode_callback_data(answer_option, task.id)
+
         self.update.callback_query.data = data
         callback_handler(self.bot, self.update)
 
@@ -301,7 +308,7 @@ class BotTestCase(TestCase):
         self.assertIn(message_template, self.mock_render.call_args[0])
 
 
-@with_test_db(Task, Activity)
+@with_test_db(Task, Activity, TelegramCallback)
 class TestBotCallbacks(BotTestCase):
 
     def test_add_task(self):
@@ -446,7 +453,7 @@ class TestActivity(TestCase):
         self.assertEqual(len(Activity.get_public_list(555)), 1)
 
 
-@with_test_db(Task, Activity)
+@with_test_db(Task, Activity, TelegramCallback)
 class TestActivityWithBot(BotTestCase):
 
     def test_increment(self):
@@ -463,6 +470,22 @@ class TestActivityWithBot(BotTestCase):
         self.answer(AnswerOption.ADD_TASK, 'JS')
         self.assertEqual(Activity.get(self.chat_id).bot_add, 1)
         self.assertEqual(Activity.get(self.chat_id).forgot_count, 1)
+
+
+@with_test_db(TelegramCallback)
+class TestTelegramCallback(BotTestCase):
+
+    def test_auto_delete(self):
+        callback = TelegramCallback.create(data='Hey')
+        bot_callback = encode_callback_data(1, callback.id)
+        data = TelegramCallback.pop_data(bot_callback)
+
+        self.assertEqual(len(TelegramCallback.select()), 0)
+        self.assertEqual(data, 'Hey')
+
+    def test_delete_if_user_press_cancel(self):
+        self.answer(AnswerOption.CANCEL, 'Cancel')
+        self.assertEqual(len(TelegramCallback.select()), 0)
 
 
 if __name__ == '__main__':
