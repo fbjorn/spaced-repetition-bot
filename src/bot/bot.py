@@ -50,8 +50,12 @@ class MessageTemplate(object):
     HELP = 'Just write me a term you want to remember'
 
 
-def handle_text(bot, update):
-    user_message = format_task_content(update.message.text)
+def handle_text(bot, update, **kwargs):
+    forward = kwargs.get('forward')
+    if forward:
+        user_message = format_task_content(forward)
+    else:
+        user_message = format_task_content(update.message.text)
     callback = TelegramCallback.create(data=user_message)
     encoded_task = encode_callback_data(AnswerOption.ADD_TASK, callback.id)
 
@@ -224,18 +228,21 @@ def get_stats_creator(base_url):
     return get_stats_url
 
 
+def start(bot, update, args):
+    handle_text(bot, update, forward=' '.join(args))
+
+
 def add_handlers(dsp, config):
     dsp.add_handler(CallbackQueryHandler(callback_handler))
     dsp.add_handler(CommandHandler('help', help))
     dsp.add_handler(CommandHandler('apikey', get_api_key))
     dsp.add_handler(MessageHandler(Filters.text, handle_text))
+    dsp.add_handler(CommandHandler('start', start, pass_args=True))
     dsp.add_error_handler(error)
 
     stats_url = config.get('stats_url')
     if stats_url:
         dsp.add_handler(CommandHandler('stats', get_stats_creator(stats_url)))
-
-
 
 
 if __name__ == '__main__':
